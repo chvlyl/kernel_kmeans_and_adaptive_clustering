@@ -1,11 +1,18 @@
 import numpy as np
 import random
+from  scipy.spatial.distance import pdist,squareform
 
 def test():
 	print(1)
     
     
+def polynomial_kernel(data,p=2,gamma=1.0):
+    return (np.dot(data,data.T)+gamma)**p
 
+
+def gaussian_kernel(data,sigma=1.0)
+    ### 'sqeuclidean': squared Euclidean distance
+    return np.exp(-0.5/(sigma**2)*squareform(pdist(X,'sqeuclidean')))
 
 def k_means(data, n_clusters=3, n_init=10, max_iter=100, verbose=False):
     '''
@@ -63,11 +70,11 @@ def k_means(data, n_clusters=3, n_init=10, max_iter=100, verbose=False):
     best_controids = controid_history[best_iter]
     best_cluster_label = cluster_label_history[best_iter]
     
-    return({'best_iter':best_iter,
+    return {'best_iter':best_iter,
             'best_sse':best_sse,
             'best_controids':best_controids,
             'best_cluster_label':best_cluster_label,
             'controid_history':controid_history,
             'cluster_label_history':cluster_label_history,
             'sse_history':sse_history,
-           })
+           }
