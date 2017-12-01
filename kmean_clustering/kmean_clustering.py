@@ -13,7 +13,7 @@ def adaptive_cluster(data,gap_par=0.5):
     #print('distance_matrix.shape',distance_matrix.shape)
     weight_matrix = np.zeros(shape=(n_points,n_points))
     #print('weight_matrix.shape',weight_matrix.shape)
-    plot_weight_matrix(weight_matrix)
+    #plot_weight_matrix(weight_matrix)
     ### sort the distance matrix
     sorted_distance_idx_matrix = np.argsort(distance_matrix,axis=1)
     sorted_distance_matrix = np.sort(distance_matrix,axis=1)
@@ -308,3 +308,8 @@ def k_means_kernel(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,verb
             'cluster_label_history':cluster_label_history,
             'sse_history':sse_history,
            }
+
+
+def plot_weight_matrix(weight_matrix):
+    plt.imshow(weight_matrix)
+    plt.show()
