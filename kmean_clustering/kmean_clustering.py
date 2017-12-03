@@ -1,17 +1,23 @@
 import numpy as np
 import random,sys
-from  scipy.spatial.distance import pdist,squareform
 import scipy
+
+from  scipy.spatial.distance import pdist,squareform
 from scipy.spatial import distance_matrix
-    
-def test():
-	print(1)
-    
-def adaptive_cluster(data,gap_par=0.5):
+import matplotlib.pyplot as plt
+
+
+
+### "for loop" version
+### faster than "matrix version"
+### because only need to consider points within h_k
+def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
+    weight_matrix_history = []
     (n_points,n_features) = data.shape
     distance_matrix = scipy.spatial.distance_matrix(data,data)
     #print('distance_matrix.shape',distance_matrix.shape)
     weight_matrix = np.zeros(shape=(n_points,n_points))
+    weight_matrix_history.append((0,weight_matrix))
     #print('weight_matrix.shape',weight_matrix.shape)
     #plot_weight_matrix(weight_matrix)
     ### sort the distance matrix
@@ -20,7 +26,8 @@ def adaptive_cluster(data,gap_par=0.5):
     #print('sorted_distance_matrix.shape',sorted_distance_matrix.shape)    
     #print('sorted_distance_idx_matrix.shape',sorted_distance_idx_matrix.shape)
     ### number of neighbors
-    n0 = 2*n_features+2
+    if n0 is None:
+        n0 = 2*n_features+2
     ### h0 is the the radius such that the point has n0 neighbors 
     h0 = sorted_distance_matrix[:,n0]
     #print('h0.shape',h0.shape)
@@ -45,7 +52,7 @@ def adaptive_cluster(data,gap_par=0.5):
     #n_matrix = np.repeat(n0, n_points)
     #n_matrix = n_matrix[:,np.newaxis]
     k = 0
-
+    weight_matrix_history.append((h_array[k],weight_matrix))
     while h_array[k] <= max_distance:
         ### upper bound of n(Xi,h_k+1)
         ### given radius h_array[k], how many neighbors for each data point
@@ -65,7 +72,6 @@ def adaptive_cluster(data,gap_par=0.5):
         ### append to the h_array
         ### just make sure h is not > max_distance
         if min_h_upper <= max_distance:
-            ### if min_h doesn't change anymore
             if  min_h_upper <= h_array[k]: break
             #print(k,'h',min_h_upper)
             h_array = np.append(h_array,min_h_upper)
@@ -73,7 +79,7 @@ def adaptive_cluster(data,gap_par=0.5):
 
     #################################################################    
     ### check if those h satisfy the conditions
-    if False:
+    if debug:
         for k in range(1,len(h_array)):  
             if h_array[k] <= b*h_array[k-1]:
                 continue
@@ -97,134 +103,120 @@ def adaptive_cluster(data,gap_par=0.5):
     beta_b = 0.5
     beta_function = scipy.special.beta(beta_a,beta_b)
 
+    np.seterr(divide='ignore', invalid='ignore')  
+
     for k in range(1,len(h_array)):
-        #print('h_k',h_array[k])
-        distance_matrix_temp = distance_matrix.copy()
-        distance_matrix_temp = np.where(distance_matrix_temp <= h_array[k], distance_matrix_temp, np.nan)  
-        #weight_matrix = (distance_matrix <= h_array[k]).astype('int')
-        #plot_weight_matrix(weight_matrix)
-        #### caclulate overlap
-        np.fill_diagonal(weight_matrix,0) 
-        N_overlap = [np.dot(weight_matrix[i,:],weight_matrix[j,:]) for i in range(n_points) for j in range(n_points)]
-        N_overlap = np.reshape(N_overlap,newshape=(n_points,n_points))
-        #### caclulate complement
-        N_complement = np.zeros(shape=(n_points,n_points))
+        print('h_k',h_array[k])
+        #t_matrix = distance_matrix/h_array[k-1]
+        #beta_x_matrix = 1.0-(t_matrix**2)/4.0
+        #incomplete_beta_function_matrix = scipy.special.betainc(beta_a,beta_b,beta_x_matrix)
+        #q_matrix = incomplete_beta_function_matrix / (2*beta_function-incomplete_beta_function_matrix)
         for i in range(n_points):
             for j in range(n_points):
-                if k>1:
-                    ind1 = (distance_matrix[j,:] > h_array[k-1]).astype('int')
-                    ind2 = (distance_matrix[i,:] > h_array[k-1]).astype('int')
-                if k==1:
-                    ind1 = (distance_matrix[j,:] > np.maximum(h0[i],h0[j])).astype('int')
-                    ind2 = (distance_matrix[i,:] > np.maximum(h0[i],h0[j])).astype('int')
-                N_complement[i,j] = np.dot(weight_matrix[i,:],ind1) + np.dot(weight_matrix[j,:],ind2)
-        ###
-        np.fill_diagonal(weight_matrix,1)
-        #### caclulate union
-        N_union = N_overlap + N_complement
-        #### theta
-        theta = N_overlap / N_union
-        #### q
-        t = distance_matrix_temp/h_array[k-1]
-        beta_x = 1.0-(t**2)/4.0
-        incomplete_beta_function = scipy.special.betainc(beta_a,beta_b,beta_x)
-        q = incomplete_beta_function / (2*beta_function-incomplete_beta_function)
-        T1 = N_union
-        T2 = theta*np.log(theta/q)+(1.0-theta)*np.log((1.0-theta)/(1.0-q))
-        #### when N_overlap is 0, theta is 0, this leands to T is nan
-        #### replace those nan with 0 in T
-        #T2 = np.where(theta==0.0,0.0,T2)
-        #T2 = np.where(theta==1.0,0.0,T2)
-        T3 = ((theta<=q).astype('int')-(theta>q).astype('int'))
-        T = T1 * T2 * T3
-        ####
-        weight_matrix = ((distance_matrix<=h_array[k]) * (T<=gap_par)).astype('int')
-        #### be careful with those boundary conditions
-        weight_matrix = np.where(theta==0,0,weight_matrix)
-        weight_matrix = np.where(theta==1,1,weight_matrix)
-        np.fill_diagonal(weight_matrix,1)
-        #plot_weight_matrix(weight_matrix)
-        #break
-    return(weight_matrix)
-
-## double check this implementatioin
-## something wrong with the polynomial kernel
-def polynomial_kernel(data,p=2,gamma=1.0):
-    return (np.dot(data,data.T)+gamma)**p
-
-
-def gaussian_kernel(data,sigma=1.0):
-    ### 'sqeuclidean': squared Euclidean distance
-    return np.exp(-0.5/(sigma**2)*squareform(pdist(data,'sqeuclidean')))
-
-def k_means(data, n_clusters=3, n_init=10, max_iter=100, verbose=False):
-    '''
-    data: a numeric numpy array
-    n_clusters: number of clusters
-    n_init: number of different initializations to run kmeans
-    max_iter: number of max iterations 
-    verbose: output detailed information
-    '''
-    ### may not be efficient in terms of memory use
-    ### no need to save whole history
-    ### get whole hitory for debugging purpose
-    controid_history = {}
-    cluster_label_history = {}
-    sse_history = np.zeros(shape=(n_init,1))
-    ### start k-means
-    n_points = data.shape[0]
-    ### repeat k-means n_init times 
-    ### return the best one 
-    for i_init in range(n_init):
-        if verbose: print('Random seed',i_init)
-        #### set random seed
-        np.random.seed(i_init)
-        #### generate initial cluster labels
-        cluster_labels = np.random.choice(range(n_clusters),size=n_points, replace=True)
-        #### generate initial centroids
-        #### randomly choose n_clusters points from the data as centroids
-        centroids = data[np.random.choice(np.arange(n_points), n_clusters, replace=False),:]
-        for i_iter in range(max_iter):
-            if verbose: print('Iteration',i_iter,end=', ')
-            distance_to_centroids = np.zeros(shape=(data.shape[0],n_clusters))
-            for i_centroid in range(n_clusters):
-                ### ord=2 is L2 distance
-                ### axis=1 is to calculate norm along columns
-                distance_to_centroids[:,i_centroid] = np.linalg.norm(data-centroids[i_centroid,:],ord=2,axis=1)
-                #break
-            ### assign the cluster labels
-            cluster_labels = np.argmin(distance_to_centroids,axis=1)
-            sse = np.sum((np.min(distance_to_centroids,axis=1))**2)
-            if verbose: print('SSE',sse)
-            ### re-calculate centroids
-            previous_centroids = centroids
-            centroids = np.array([data[cluster_labels == i_centroid].mean(axis = 0) for i_centroid in range(n_clusters)])
-            ### if centroids don't change
-            ### stop the iteration
-            if np.all(previous_centroids == centroids):
-                if verbose: print('Centroids do not change',i_iter)
-                break
-        controid_history[i_init] = centroids
-        cluster_label_history[i_init] = cluster_labels
-        sse_history[i_init] = sse
-    ### find the best initializations
-    best_iter = np.argmin(sse_history)
-    best_sse = sse_history[best_iter]
-    best_controids = controid_history[best_iter]
-    best_cluster_label = cluster_label_history[best_iter]
+                #if  weight_matrix[i,j] == 1:
+                #    continue
+                if i == j: 
+                    weight_matrix[i,j] = 1
+                    continue
+                if i > j:
+                    weight_matrix[i,j] = weight_matrix[j,i]
+                    continue
+                if distance_matrix[i,j] <= h_array[k] and h_array[k-1] >= h0[i] and h_array[k-1] >= h0[j]:
+                    #### caclulate overlap
+                    N_overlap = np.dot(weight_matrix[i,:],weight_matrix[j,:])
+                    #### caclulate complement
+                    N_complement = np.zeros(shape=(n_points,n_points))
+                    if k>1:
+                        ind1 = (distance_matrix[j,:] > h_array[k-1]).astype('int')
+                        ind2 = (distance_matrix[i,:] > h_array[k-1]).astype('int')
+                    if k==1:
+                        ind1 = (distance_matrix[j,:] > np.maximum(h0[i],h0[j])).astype('int')
+                        ind2 = (distance_matrix[i,:] > np.maximum(h0[i],h0[j])).astype('int')
+                    N_complement = np.dot(weight_matrix[i,:],ind1) + np.dot(weight_matrix[j,:],ind2)
+                    #### caclulate union
+                    N_union = N_overlap + N_complement
+                    #### theta
+                    theta = N_overlap / N_union
+                    #### q
+                    t = distance_matrix[i,j]/h_array[k-1]
+                    beta_x = 1.0-(t**2)/4.0
+                    incomplete_beta_function = scipy.special.betainc(beta_a,beta_b,beta_x)
+                    q = incomplete_beta_function / (2*beta_function-incomplete_beta_function)
+                    #q = q_matrix[i,j]
+                    T1 = N_union
+                    #### this may raise warnings about log(0) or log(nan)
+                    #### this is fine, since I used the whole matrix here
+                    #### some of the points are out of the h(k) radius
+                    #### we will mask those points in the later step
+                    T2 = theta*np.log(theta/q)+(1.0-theta)*np.log((1.0-theta)/(1.0-q))
+                    #### when N_overlap is 0, theta is 0, this leands to T is nan
+                    #### replace those nan with 0 in T
+                    #T2 = np.where(theta==0.0,0.0,T2)
+                    #T2 = np.where(theta==1.0,0.0,T2)
+                    T3 = ((theta<=q).astype('int')-(theta>q).astype('int'))
+                    T = T1 * T2 * T3
+                    ####
+                    ####
+                    weight_matrix[i,j] = ((distance_matrix[i,j]<=h_array[k]) * (T<=gap_par)).astype('int')
+                    #### be careful with those boundary points
+                    #### theta=0 means no overlap at all
+                    #### theta=1 means completely overlap
+                    #### needs special treatment for them
+                    if theta==0: weight_matrix[i,j] = 0 
+                    if theta==1: weight_matrix[i,j] = 1
+        weight_matrix_history.append((h_array[k],weight_matrix))
+        
+    ### reset to default
+    np.seterr(divide='warn', invalid='warn')  
     
-    return {'best_iter':best_iter,
-            'best_sse':best_sse,
-            'best_controids':best_controids,
-            'best_cluster_label':best_cluster_label,
-            'controid_history':controid_history,
-            'cluster_label_history':cluster_label_history,
-            'sse_history':sse_history,
-           }
+    ### calculate S
+    S = np.sum(weight_matrix)
+    
+    ### extract clusters from weight matrix
+    labels = (np.zeros(shape=weight_matrix.shape[0]))
+    labels.fill(np.nan)
+    cluster_ind = 0
+    for i in range(len(labels)):
+        for j in range(len(labels)):
+            if i == j:continue
+            if weight_matrix[i,j] == 1:
+                if np.isnan(labels[i]) and np.isnan(labels[j]):
+                    labels[i] = cluster_ind
+                    labels[j] = cluster_ind
+                    cluster_ind = cluster_ind + 1
+                elif not np.isnan(labels[i]) and np.isnan(labels[j]):
+                    labels[j] = labels[i]
+                elif  np.isnan(labels[i]) and not np.isnan(labels[j]):
+                    labels[i] = labels[j]
+                elif  not np.isnan(labels[i]) and  not np.isnan(labels[j]):
+                    continue
+                else:
+                    print(i,j,labels[i],labels[j])
+                    print('cluster assignment error')
+    ### some points may not belong to any cluster
+    ### assign those points to the nearest cluster
+    ### or they can be ignored (by default, those points will have np.nan as labels)
+    ### thus those points can be considered as outliers
+    if np.sum(np.isnan(labels))>0:
+        nan_ind = np.argwhere(np.isnan(labels)).flatten()
+        for i in nan_ind:
+            dist = distance_matrix[i,:]
+            dist[i] = 1
+            nearest_ind = np.argmin(dist[i])
+            labels[i] = labels[nearest_ind]
+            
+    return({"S":S,"weight_matrix":weight_matrix,
+            "cluster_label":labels,
+            "weight_matrix_history":weight_matrix_history,
+           })
+        
 
 
 
-def k_means_kernel(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,verbose=False):
+
+
+
+def k_means(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,verbose=False,sigma = 1.0,use_kmean_controid=False):
     '''
     data: a numeric numpy array
     n_clusters: number of clusters
@@ -241,11 +233,13 @@ def k_means_kernel(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,verb
     sse_history = np.zeros(shape=(n_init,1))
     ### start k-means
     n_points = data.shape[0]
+    ### calculate the kernel matrix
     if kernel == 'gaussian':
-        ### calculate the kernel matrix
-        kernel_matrix = gaussian_kernel(data)
+        ### 'sqeuclidean': squared Euclidean distance
+        kernel_matrix = np.exp(-0.5/(sigma**2)*squareform(pdist(data,'sqeuclidean')))
     ### repeat k-means n_init times 
     ### return the best one 
+    np.seterr(divide='ignore', invalid='ignore')
     for i_init in range(n_init):
         if verbose: print('Random seed',i_init)
         #### set random seed
@@ -254,7 +248,14 @@ def k_means_kernel(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,verb
         cluster_labels = np.random.choice(range(n_clusters),size=n_points, replace=True)
         #### generate initial centroids
         #### randomly choose n_clusters points from the data as centroids
-        centroids = data[np.random.choice(np.arange(n_points), n_clusters, replace=False),:]
+        if use_kmean_controid:
+            #### run one K means
+            print('Use best K means centroid')
+            km_result = k_means(data, n_clusters, n_init=20, max_iter=100, kernel=None)
+            centroids = km_result['best_controids']
+        else:
+            #### randomly choose n_clusters points from the data as centroids
+            centroids = data[np.random.choice(np.arange(n_points), n_clusters, replace=False),:]
         for i_iter in range(max_iter):
             if verbose: print('Iteration',i_iter,end=', ')
             distance_to_centroids = np.zeros(shape=(data.shape[0],n_clusters))
@@ -294,6 +295,7 @@ def k_means_kernel(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,verb
         cluster_label_history[i_init] = cluster_labels
         sse_history[i_init] = sse
         #break
+    np.seterr(divide='warn', invalid='warn')
     ### find the best initializations
     best_iter = np.argmin(sse_history)
     best_sse = sse_history[best_iter]
