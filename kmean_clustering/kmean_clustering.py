@@ -12,6 +12,12 @@ import matplotlib.pyplot as plt
 ### faster than "matrix version"
 ### because only need to consider points within h_k
 def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
+    '''
+    data:: a numeric numpy array
+    gap_par: the lambda parameter used to test the gap
+    n0: the initial neighbors for each data point. 
+    debug: for debug
+    '''
     weight_matrix_history = []
     (n_points,n_features) = data.shape
     distance_matrix = scipy.spatial.distance_matrix(data,data)
@@ -216,14 +222,19 @@ def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
 
 
 
-def k_means(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,verbose=False,sigma = 1.0,use_kmean_controid=False):
+from  scipy.spatial.distance import pdist,squareform
+
+def k_means(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,
+            verbose=False,sigma = 1.0,use_kmean_controid=False):
     '''
     data: a numeric numpy array
     n_clusters: number of clusters
     n_init: number of different initializations to run kmeans
     max_iter: number of max iterations 
-    verbose: output detailed information
     kernel: "None", regular k means; "gaussian",  k means with gaussian kernel
+    verbose: output detailed information
+    sigma: the sigma parameter in the gaussian kernel 
+    use_kmean_controid: for kenel K means, use the best controids from K means as initialization points.
     '''
     ### may not be efficient in terms of memory use
     ### no need to save whole history
