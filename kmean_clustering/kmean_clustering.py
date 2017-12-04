@@ -2,25 +2,31 @@ import numpy as np
 import random,sys
 import scipy
 
-from  scipy.spatial.distance import pdist,squareform
-from scipy.spatial import distance_matrix
+from  scipy.spatial.distance import pdist,squareform,cdist
+#from scipy.spatial import distance_matrix
 import matplotlib.pyplot as plt
-
+import scipy
 
 
 ### "for loop" version
 ### faster than "matrix version"
 ### because only need to consider points within h_k
-def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
+### for loop version
+### run this cell to overwrite the previous matrix version
+### because this version is faster
+def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False,assign_outliers = 'nearest_cluster'):
     '''
     data:: a numeric numpy array
     gap_par: the lambda parameter used to test the gap
     n0: the initial neighbors for each data point. 
     debug: for debug
+    assign_outliers: nearest_cluster, assign outliers to nearest cluster. new_cluster, assign outliers to a new cluster
     '''
     weight_matrix_history = []
     (n_points,n_features) = data.shape
-    distance_matrix = scipy.spatial.distance_matrix(data,data)
+    #distance_matrix = scipy.spatial.distance_matrix(data,data)
+    ## faster version
+    distance_matrix = scipy.spatial.distance.cdist(data, data, 'euclidean')
     #print('distance_matrix.shape',distance_matrix.shape)
     weight_matrix = np.zeros(shape=(n_points,n_points))
     weight_matrix_history.append((0,weight_matrix))
@@ -38,10 +44,15 @@ def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
     h0 = sorted_distance_matrix[:,n0]
     #print('h0.shape',h0.shape)
     ### max(h0(Xi),h0(Xj))
-    max_h0 = np.reshape([np.maximum(h0[i],h0[j]) for i in range(n_points) for j in range(n_points)],newshape=(n_points,n_points))
+    #max_h0 = np.reshape([np.maximum(h0[i],h0[j]) for i in range(n_points) for j in range(n_points)],newshape=(n_points,n_points))
     #print('max_h0.shape',max_h0.shape)
     ### weight_matrix
-    weight_matrix = (distance_matrix <= max_h0).astype('int')
+    #weight_matrix = (distance_matrix <= max_h0).astype('int')
+    ### faster version
+    h0_matrix = np.tile(h0, (n_points, 1))
+    h0_matrix_T = h0_matrix.T
+    h0_matrix_max = np.maximum(h0_matrix,h0_matrix_T)
+    weight_matrix = (distance_matrix<=h0_matrix_max).astype('int')
     #print('weight_matrix.shape',weight_matrix.shape)
     #plot_weight_matrix(weight_matrix)
 
@@ -58,7 +69,7 @@ def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
     #n_matrix = np.repeat(n0, n_points)
     #n_matrix = n_matrix[:,np.newaxis]
     k = 0
-    weight_matrix_history.append((h_array[k],weight_matrix))
+    weight_matrix_history.append((h_array[k],weight_matrix.copy()))
     while h_array[k] <= max_distance:
         ### upper bound of n(Xi,h_k+1)
         ### given radius h_array[k], how many neighbors for each data point
@@ -110,7 +121,7 @@ def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
     beta_function = scipy.special.beta(beta_a,beta_b)
 
     np.seterr(divide='ignore', invalid='ignore')  
-
+    print('h_k',h_array[0])
     for k in range(1,len(h_array)):
         print('h_k',h_array[k])
         #t_matrix = distance_matrix/h_array[k-1]
@@ -118,26 +129,27 @@ def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
         #incomplete_beta_function_matrix = scipy.special.betainc(beta_a,beta_b,beta_x_matrix)
         #q_matrix = incomplete_beta_function_matrix / (2*beta_function-incomplete_beta_function_matrix)
         for i in range(n_points):
-            for j in range(n_points):
+            weight_matrix[i,i] = 1
+            for j in range(i,n_points):
                 #if  weight_matrix[i,j] == 1:
                 #    continue
-                if i == j: 
-                    weight_matrix[i,j] = 1
-                    continue
-                if i > j:
-                    weight_matrix[i,j] = weight_matrix[j,i]
-                    continue
+                #if i == j: 
+                #    weight_matrix[i,j] = 1
+                #    continue
+                #if i > j:
+                #    weight_matrix[i,j] = weight_matrix[j,i]
+                #   continue
                 if distance_matrix[i,j] <= h_array[k] and h_array[k-1] >= h0[i] and h_array[k-1] >= h0[j]:
                     #### caclulate overlap
                     N_overlap = np.dot(weight_matrix[i,:],weight_matrix[j,:])
                     #### caclulate complement
-                    N_complement = np.zeros(shape=(n_points,n_points))
+                    #N_complement = np.zeros(shape=(n_points,n_points))
                     if k>1:
-                        ind1 = (distance_matrix[j,:] > h_array[k-1]).astype('int')
-                        ind2 = (distance_matrix[i,:] > h_array[k-1]).astype('int')
-                    if k==1:
-                        ind1 = (distance_matrix[j,:] > np.maximum(h0[i],h0[j])).astype('int')
-                        ind2 = (distance_matrix[i,:] > np.maximum(h0[i],h0[j])).astype('int')
+                        ind1 = (distance_matrix[j,:] > h_array[k-1]) + 0.0
+                        ind2 = (distance_matrix[i,:] > h_array[k-1]) + 0.0
+                    else:
+                        ind1 = (distance_matrix[j,:] > h0_matrix_max[i,j]) + 0.0
+                        ind2 = (distance_matrix[i,:] > h0_matrix_max[i,j]) + 0.0
                     N_complement = np.dot(weight_matrix[i,:],ind1) + np.dot(weight_matrix[j,:],ind2)
                     #### caclulate union
                     N_union = N_overlap + N_complement
@@ -159,18 +171,26 @@ def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
                     #### replace those nan with 0 in T
                     #T2 = np.where(theta==0.0,0.0,T2)
                     #T2 = np.where(theta==1.0,0.0,T2)
-                    T3 = ((theta<=q).astype('int')-(theta>q).astype('int'))
-                    T = T1 * T2 * T3
+                    #T3 = ((theta<=q).astype('int')-(theta>q).astype('int'))
+                    ### faster version
+                    if theta<=q:
+                        T = T1 * T2
+                    else:
+                        T = - (T1 * T2)
+                    #T = T1 * T2 * T3
                     ####
                     ####
-                    weight_matrix[i,j] = ((distance_matrix[i,j]<=h_array[k]) * (T<=gap_par)).astype('int')
+                    #weight_matrix[i,j] = (distance_matrix[i,j]<=h_array[k]) * (T<=gap_par) + 0.0
+                    weight_matrix[i,j] = (T<=gap_par) + 0.0
                     #### be careful with those boundary points
                     #### theta=0 means no overlap at all
                     #### theta=1 means completely overlap
                     #### needs special treatment for them
                     if theta==0: weight_matrix[i,j] = 0 
                     if theta==1: weight_matrix[i,j] = 1
-        weight_matrix_history.append((h_array[k],weight_matrix))
+                    ####
+                    weight_matrix[j,i] = weight_matrix[i,j]
+        weight_matrix_history.append((h_array[k],weight_matrix.copy()))
         
     ### reset to default
     np.seterr(divide='warn', invalid='warn')  
@@ -203,26 +223,32 @@ def adaptive_cluster(data, gap_par = 0.5, n0=None,debug=False):
     ### assign those points to the nearest cluster
     ### or they can be ignored (by default, those points will have np.nan as labels)
     ### thus those points can be considered as outliers
-    if np.sum(np.isnan(labels))>0:
-        nan_ind = np.argwhere(np.isnan(labels)).flatten()
-        for i in nan_ind:
-            dist = distance_matrix[i,:]
-            dist[i] = 1
-            nearest_ind = np.argmin(dist[i])
-            labels[i] = labels[nearest_ind]
+    if assign_outliers == 'nearest_cluster':
+        if np.sum(np.isnan(labels))>0:
+            nan_ind = np.argwhere(np.isnan(labels)).flatten()
+            for i in nan_ind:
+                dist = distance_matrix[i,:].copy()
+                dist[i] = np.max(dist)
+                nearest_ind = np.argmin(dist)
+                labels[i] = labels[nearest_ind]
+                #print(dist)
+                #print(i,nearest_ind)
+    elif assign_outliers == 'new_cluster':
+        if np.sum(np.isnan(labels))>0:
+            nan_ind = np.argwhere(np.isnan(labels)).flatten()
+            outlier_label = np.nanmax(np.unique(labels)) + 1
+            for i in nan_ind:
+                labels[i] = outlier_label
+    else:
+        print('assign_outliers parameter is not correct')
             
     return({"S":S,"weight_matrix":weight_matrix,
             "cluster_label":labels,
             "weight_matrix_history":weight_matrix_history,
            })
-        
+               
 
 
-
-
-
-
-from  scipy.spatial.distance import pdist,squareform
 
 def k_means(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,
             verbose=False,sigma = 1.0,use_kmean_controid=False):
@@ -270,15 +296,18 @@ def k_means(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,
         for i_iter in range(max_iter):
             if verbose: print('Iteration',i_iter,end=', ')
             distance_to_centroids = np.zeros(shape=(data.shape[0],n_clusters))
-            for i_centroid in range(n_clusters):
-                if kernel is None:
-                    ### ord=2 is L2 distance
-                    ### axis=1 is to calculate norm along columns
-                    distance_to_centroids[:,i_centroid] = np.linalg.norm(data-centroids[i_centroid,:],ord=2,axis=1)
-                elif kernel == 'gaussian':
-                    kth_cluster_ind = (cluster_labels == i_centroid).astype('int')
+            ######
+            if kernel is None:
+                distance_to_centroids = scipy.spatial.distance.cdist(data, centroids, 'euclidean')
+            ######
+            elif kernel == 'gaussian':
+                dist1 = np.diag(kernel_matrix)
+                cluster_ind_matrix = np.zeros(shape=(data.shape[0],n_clusters))
+                for i_centroid in range(n_clusters):
+                    cluster_ind_matrix[:,i_centroid] = (cluster_labels == i_centroid) + 0.0
+                    kth_cluster_ind = (cluster_labels == i_centroid) + 0.0
                     kth_cluster_matrix = np.outer(kth_cluster_ind,kth_cluster_ind)
-                    dist1 = np.diag(kernel_matrix)
+                    
                     dist2 = 2.0*np.sum(np.tile(kth_cluster_ind,(n_points,1))*kernel_matrix,axis=1)/np.sum(kth_cluster_ind)
                     dist3 = np.sum(kth_cluster_matrix*kernel_matrix)/np.sum(kth_cluster_matrix)
                     #print(dist1.shape,dist2.shape,dist3.shape,)
@@ -286,8 +315,8 @@ def k_means(data, n_clusters=3, n_init=20, max_iter=100, kernel=None,
                     ### axis=1 is to calculate norm along columns
                     distance_to_centroids[:,i_centroid] = dist1-dist2+dist3
                     #break
-                else:
-                    sys.exit('Kernel parameter is not correct!')
+            else:
+                sys.exit('Kernel parameter is not correct!')
             #print(distance_to_centroids)
             ### assign the cluster labels
             cluster_labels = np.argmin(distance_to_centroids,axis=1)
